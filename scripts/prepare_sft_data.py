@@ -2,9 +2,11 @@
 SFT data pipeline: load, adapt, validate, and split Swedish instruction/chat datasets.
 
 Each HF dataset has its own adapter function based on verified schemas.
+Optionally generates synthetic Swedish conversations via the Anthropic API.
 
 Usage:
     python scripts/prepare_sft_data.py --config configs/datasets.yaml --out data/manifests
+    python scripts/prepare_sft_data.py --config configs/datasets.yaml --out data/manifests --synthetic_target 50000
 """
 
 import argparse
@@ -254,8 +256,156 @@ def load_and_adapt(source_cfg, token=None):
 
     ds = load_dataset(path, **kwargs)
     results = adapter(ds, name)
+    # Propagate license from config into each conversation record
+    license_str = source_cfg.get("license", "unknown")
+    for r in results:
+        r["license"] = license_str
     print(f"  -> {len(results)} conversations from {name}")
     return results
+
+
+# ─── Synthetic data generation ───────────────────────────────────────────────
+
+SYNTHETIC_CATEGORIES = [
+    ("casual_chat", "Vardaglig konversation: hälsning, small talk, planering av vardagliga aktiviteter"),
+    ("practical_advice", "Praktiska råd: matlagning, hushåll, trädgård, bilreparation, hemfix"),
+    ("customer_support", "Kundtjänst: klagomål, returer, fakturor, leveransproblem, teknisk support"),
+    ("small_business", "Småföretag: bokföring, momsdeklaration, anställning, marknadsföring"),
+    ("email_drafting", "E-postutkast: formella brev, ansökningar, tackbrev, förfrågningar"),
+    ("sms_replies", "SMS/chatt-svar: korta snabba svar, talspråk, förkortningar"),
+    ("planning", "Planering: resor, semester, evenemang, möten, projektplanering"),
+    ("parenting_school", "Föräldraskap/skola: barnuppfostran, läxhjälp, skolval, fritidsaktiviteter"),
+    ("polite_refusals", "Artiga avböjanden: tacka nej till inbjudningar, förfrågningar, erbjudanden"),
+    ("clarifications", "Förtydliganden: be om mer information, klargöra missförstånd"),
+    ("multi_turn", "Flerstegssamtal: uppföljningsfrågor, fördjupning, ämnesbyte"),
+    ("factual_explanation", "Faktaförklaring: vetenskap, historia, geografi, samhälle, svensk kultur"),
+]
+
+SYNTHETIC_STYLES = [
+    "formell (korrekt, högtidlig, skriftspråklig)",
+    "neutral (vardaglig men korrekt)",
+    "vardaglig (talspråklig, avslappnad)",
+    "koncis (kort och kärnfull)",
+    "förklarande (utförlig, pedagogisk)",
+    "varm (empatisk, inkännande)",
+    "saklig (rak, professionell)",
+    "praktisk (handlingsorienterad, steg-för-steg)",
+]
+
+SYNTHETIC_SYSTEM_PROMPT = """\
+Du är en datagenereringsassistent som skapar naturliga svenska konversationer \
+för att träna en språkmodell.
+
+REGLER:
+- Skriv idiomatisk svenska, INTE översatt engelska
+- Använd naturliga svenska uttryck, ordföljd och partikelverb
+- Variera meningslängd och komplexitet
+- Inkludera svenska kulturella referenser där det passar \
+(personnummer, BankID, fika, allemansrätten, etc.)
+- Undvik amerikansk/engelsk kulturell kontext
+- Undvik policyformuleringar och disclaimers
+- Assistenten ska vara hjälpsam, naturlig och lagom formell/informell beroende på stilen
+- Varje konversation ska ha minst 2 och max 8 meddelanden (user/assistant alternerande)
+
+Returnera EXAKT en JSON-array med konversationer i detta format:
+[
+  {
+    "messages": [
+      {"role": "user", "content": "..."},
+      {"role": "assistant", "content": "..."}
+    ]
+  }
+]
+
+Returnera ENBART JSON, inget annat.\
+"""
+
+
+def generate_synthetic_conversations(target, api_key, seed=42):
+    """Generate synthetic Swedish conversations using the Anthropic API.
+
+    Requires: pip install anthropic
+
+    Args:
+        target: Number of conversations to generate.
+        api_key: Anthropic API key (ANTHROPIC_API_KEY).
+        seed: Random seed for category/style selection.
+
+    Returns:
+        List of {"messages": [...], "source": "synthetic", "license": "synthetic"}.
+    """
+    try:
+        import anthropic
+    except ImportError:
+        print("ERROR: 'anthropic' package required for synthetic generation.")
+        print("  Install with: pip install anthropic")
+        return []
+
+    client = anthropic.Anthropic(api_key=api_key)
+    rng = random.Random(seed)
+
+    results = []
+    batch_size = 5
+    num_batches = (target + batch_size - 1) // batch_size
+
+    print(f"\n  Generating {target} synthetic conversations ({num_batches} API calls)...")
+
+    for batch_idx in range(num_batches):
+        if len(results) >= target:
+            break
+
+        cat_id, cat_desc = rng.choice(SYNTHETIC_CATEGORIES)
+        style = rng.choice(SYNTHETIC_STYLES)
+        remaining = min(batch_size, target - len(results))
+
+        user_prompt = (
+            f"Generera {remaining} svenska konversationer.\n"
+            f"Kategori: {cat_desc}\n"
+            f"Stil: {style}\n"
+            f"Varje konversation ska vara unik och naturlig."
+        )
+
+        try:
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=4096,
+                system=SYNTHETIC_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+
+            text = response.content[0].text.strip()
+
+            # Strip markdown code fences if present
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1]
+                text = text.rsplit("```", 1)[0]
+
+            convs = json.loads(text)
+            if not isinstance(convs, list):
+                convs = [convs]
+
+            for conv in convs:
+                messages = conv.get("messages", [])
+                if not messages:
+                    continue
+                results.append({
+                    "messages": messages,
+                    "source": "synthetic",
+                    "license": "synthetic",
+                })
+
+            if (batch_idx + 1) % 50 == 0 or batch_idx == num_batches - 1:
+                print(f"  Progress: {len(results)}/{target} ({batch_idx + 1}/{num_batches} batches)")
+
+        except json.JSONDecodeError as e:
+            print(f"  WARNING: JSON parse error in batch {batch_idx}: {e}")
+            continue
+        except Exception as e:
+            print(f"  WARNING: API error in batch {batch_idx}: {e}")
+            continue
+
+    print(f"  Generated {len(results)} synthetic conversations")
+    return results[:target]
 
 
 def validate_conversation(conv):
@@ -280,6 +430,8 @@ def main():
     parser.add_argument("--eval_ratio", type=float, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--local_only", action="store_true")
+    parser.add_argument("--synthetic_target", type=int, default=0,
+                        help="Number of synthetic conversations to generate via Anthropic API")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -300,6 +452,20 @@ def main():
         except Exception as e:
             print(f"  ERROR loading {src['name']}: {e}")
             continue
+
+    # Generate synthetic conversations if requested
+    if args.synthetic_target > 0:
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not anthropic_key:
+            print("ERROR: --synthetic_target requires ANTHROPIC_API_KEY environment variable")
+            return 1
+        print(f"\nGenerating synthetic data (target={args.synthetic_target})...")
+        synthetic = generate_synthetic_conversations(
+            target=args.synthetic_target,
+            api_key=anthropic_key,
+            seed=args.seed,
+        )
+        all_convs.extend(synthetic)
 
     print(f"\nTotal raw conversations: {len(all_convs)}")
 

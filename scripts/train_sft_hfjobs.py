@@ -8,6 +8,7 @@
 #     "trackio",
 #     "tensorboard",
 #     "transformers==4.57.3",
+#     "peft",
 #     "pyyaml",
 # ]
 # ///

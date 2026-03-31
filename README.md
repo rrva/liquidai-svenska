@@ -21,6 +21,10 @@ make prepare-cpt
 
 # Prepare SFT data
 make prepare-sft
+
+# Prepare SFT data with synthetic generation (requires ANTHROPIC_API_KEY)
+export ANTHROPIC_API_KEY=your_key
+python scripts/prepare_sft_data.py --config configs/datasets.yaml --out data/manifests --synthetic_target 50000
 ```
 
 ## HF Jobs (training)
@@ -60,11 +64,15 @@ python scripts/eval_chat.py \
 
 ## Data provenance
 
-All training data is tracked in JSONL manifests under `data/manifests/`. Each document records its source and license. See `configs/datasets.yaml` for the full source list.
+All training data is tracked in JSONL manifests under `data/manifests/`. Each document records its source and license field. See `configs/datasets.yaml` for the full source list.
 
 ### CPT sources
-- Swedish Wikipedia (CC-BY-SA-3.0)
-- CulturaX Swedish subset (various, gated)
+- Swedish Wikipedia (CC-BY-SA-3.0) — encyclopedic prose
+- CulturaX Swedish subset (various, gated) — web-crawled text
+- MC4 Swedish (ODC-BY-1.0) — cleaned Common Crawl / news
+- OSCAR Swedish (CC0-1.0) — web corpus / forums
+- Swedish Riksdag (CC0-1.0) — government / parliamentary text
+- Swedish literature (CC-BY-4.0) — books / long-form prose
 
 ### SFT sources
 - `neph1/Alpaca-Lora-GPT4-Swedish-Refined` (52K instruction pairs)
@@ -72,14 +80,16 @@ All training data is tracked in JSONL manifests under `data/manifests/`. Each do
 - `OpenAssistant/oasst2` Swedish subset (multi-turn dialog)
 - `alexandrainst/scandi-qa` Swedish split (6.8K QA)
 - `skvarre/swedish-instruct-data-chatgpt4` (1.4K instruction pairs)
+- Synthetic Swedish conversations (generated via Anthropic API, `--synthetic_target`)
 
 ## License warning
 
 Not all upstream datasets have clear redistribution licenses. Before publishing any model trained with this pipeline:
 
 - Verify each dataset's license permits model training and redistribution
-- Check the `license` field in manifest files
-- Entries marked `check-upstream` require manual verification
+- Check the `license` field in manifest files — each record carries its source license
+- Entries marked `check-upstream` or `unknown` require manual verification
+- Entries marked `synthetic` were generated via API and have no upstream license concern
 - Do not assume scraped Swedish text is safe to use
 
 ## Repo structure

@@ -71,6 +71,7 @@ def main():
     # 5. Single forward pass
     print("\n5. Forward pass...")
     batch = {k: v.to(device) for k, v in batch.items()}
+    batch["labels"] = batch["input_ids"].clone()
     with torch.no_grad():
         outputs = model(**batch)
     loss = outputs.loss

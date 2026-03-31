@@ -80,7 +80,7 @@ def tokenize_and_pack(texts, tokenizer, seq_length):
 
     # Pack into chunks of seq_length
     packed = []
-    for i in range(0, len(all_ids) - seq_length, seq_length):
+    for i in range(0, len(all_ids) - seq_length + 1, seq_length):
         packed.append(all_ids[i : i + seq_length])
 
     print(f"  Total tokens: {len(all_ids):,}")

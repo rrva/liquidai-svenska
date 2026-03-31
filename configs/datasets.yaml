@@ -1,7 +1,7 @@
 # Dataset configuration for Swedish LFM2.5 project
 
 cpt_sources:
-  # Swedish Wikipedia — encyclopedic / factual prose
+  # Swedish Wikipedia — encyclopedic / factual prose (40% target)
   - name: swedish_wikipedia
     type: huggingface
     path: wikimedia/wikipedia
@@ -20,7 +20,49 @@ cpt_sources:
     text_field: text
     category: web
     license: various
-    max_docs: 500000  # sample from larger dataset
+    max_docs: 500000
+
+  # MC4 Swedish — cleaned Common Crawl (news/web prose, 20% target)
+  - name: mc4_sv
+    type: huggingface
+    path: mc4
+    subset: sv
+    split: train
+    text_field: text
+    category: news
+    license: ODC-BY-1.0
+    max_docs: 200000
+
+  # Swedish portion of OSCAR — large web corpus (forums/conversational)
+  - name: oscar_sv
+    type: huggingface
+    path: oscar-corpus/OSCAR-2301
+    subset: sv
+    split: train
+    text_field: text
+    category: forums
+    license: CC0-1.0
+    max_docs: 100000
+
+  # Swedish Riksdag open data — government/parliamentary text
+  - name: swedish_riksdag
+    type: huggingface
+    path: KBLab/swedish_government_official_reports
+    split: train
+    text_field: text
+    category: government
+    license: CC0-1.0
+    max_docs: 50000
+
+  # Swedish books/literature from Project Runeberg (via Språkbanken)
+  - name: swedish_literature
+    type: huggingface
+    path: KBLab/rixvox
+    split: train
+    text_field: text
+    category: books
+    license: CC-BY-4.0
+    max_docs: 50000
 
 sft_sources:
   # Swedish Alpaca (GPT-4 refined)

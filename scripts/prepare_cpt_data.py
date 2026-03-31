@@ -53,8 +53,9 @@ def detect_swedish(text, threshold=0.8):
             if lang.lang == "sv" and lang.prob >= threshold:
                 return True
         return False
-    except Exception:
-        return True  # if detection fails, keep the document
+    except Exception as e:
+        print(f"  WARNING: language detection failed ({e}), rejecting document")
+        return False
 
 
 def passes_quality(text, min_chars, max_chars, min_words):
@@ -107,7 +108,7 @@ def load_hf_source(source_cfg, token=None):
                 if not row_lang.startswith(lang_filter):
                     continue
             if text:
-                docs.append({"text": text, "source": name})
+                docs.append({"text": text, "source": name, "license": source_cfg.get("license", "unknown")})
         return docs
     else:
         ds = load_dataset(path, **kwargs)
@@ -119,7 +120,7 @@ def load_hf_source(source_cfg, token=None):
                 if not row_lang.startswith(lang_filter):
                     continue
             if text:
-                docs.append({"text": text, "source": name})
+                docs.append({"text": text, "source": name, "license": source_cfg.get("license", "unknown")})
         return docs
 
 
@@ -134,7 +135,7 @@ def load_local_source(source_cfg):
             row = json.loads(line)
             text = row.get(text_field, "")
             if text:
-                docs.append({"text": text, "source": name})
+                docs.append({"text": text, "source": name, "license": source_cfg.get("license", "unknown")})
     return docs
 
 
@@ -223,7 +224,7 @@ def main():
     for i, doc in enumerate(all_docs):
         doc["id"] = f"cpt-{doc['source']}-{i:07d}"
         doc["chars"] = len(doc["text"])
-        doc["license"] = "see-source"
+        doc["license"] = doc.get("license", "unknown")
 
     # Split by source to avoid leakage: sample eval proportionally from each source
     print(f"Splitting train/eval (eval_ratio={eval_ratio})...")
