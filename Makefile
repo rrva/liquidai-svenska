@@ -1,4 +1,4 @@
-.PHONY: smoke prepare-cpt prepare-sft eval-ppl eval-chat
+.PHONY: smoke prepare-cpt prepare-sft eval-ppl eval-chat test test-verbose
 
 smoke:
 	python scripts/smoke_test.py
@@ -14,3 +14,9 @@ eval-ppl:
 
 eval-chat:
 	python scripts/eval_chat.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt
+
+test:
+	python -m pytest tests/ -x -q
+
+test-verbose:
+	python -m pytest tests/ -v
