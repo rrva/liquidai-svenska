@@ -1,0 +1,79 @@
+# Dataset configuration for Swedish LFM2.5 project
+
+cpt_sources:
+  # Swedish Wikipedia — encyclopedic / factual prose
+  - name: swedish_wikipedia
+    type: huggingface
+    path: wikimedia/wikipedia
+    subset: "20231101.sv"
+    split: train
+    text_field: text
+    category: encyclopedic
+    license: CC-BY-SA-3.0
+
+  # Swedish portion of CulturaX — web-crawled Swedish text
+  - name: culturax_sv
+    type: huggingface
+    path: uonlp/CulturaX
+    subset: sv
+    split: train
+    text_field: text
+    category: web
+    license: various
+    max_docs: 500000  # sample from larger dataset
+
+sft_sources:
+  # Swedish Alpaca (GPT-4 refined)
+  - name: alpaca_swedish
+    type: huggingface
+    path: neph1/Alpaca-Lora-GPT4-Swedish-Refined
+    split: train
+    category: instruction
+    license: check-upstream
+
+  # Swedish Wikipedia QA
+  - name: wikipedia_qa_sv
+    type: huggingface
+    path: elliottdury/svenska-wikipedia-qa-small
+    split: train
+    category: qa
+    license: check-upstream
+
+  # OpenAssistant Swedish subset
+  - name: oasst2_sv
+    type: huggingface
+    path: OpenAssistant/oasst2
+    split: train
+    lang_filter: sv
+    category: dialog
+    license: Apache-2.0
+
+  # ScandiQA Swedish split
+  - name: scandi_qa_sv
+    type: huggingface
+    path: alexandrainst/scandi-qa
+    subset: sv
+    split: train
+    category: qa
+    license: check-upstream
+
+  # Swedish instruct data (GPT-4 generated)
+  - name: swedish_instruct_gpt4
+    type: huggingface
+    path: skvarre/swedish-instruct-data-chatgpt4
+    split: train
+    category: instruction
+    license: check-upstream
+
+# Quality filters
+quality:
+  min_chars: 200
+  max_chars: 100000
+  min_words: 30
+  dedupe: true
+  dedupe_method: exact_hash  # upgrade to minhash if needed
+
+# Splits
+splits:
+  cpt_eval_ratio: 0.01
+  sft_eval_ratio: 0.05

@@ -1,0 +1,67 @@
+# Swedish eval prompts for chat evaluation
+# One prompt per line. Lines starting with # are comments.
+
+# Particles (ju, väl, nog)
+Det är ju så att
+Du kommer väl på festen
+Det räcker nog med
+
+# Compound words
+Sveriges arbetsmarknadspolitik handlar om
+Barnomsorgen i Stockholm
+Sjukvårdssystemet i Sverige fungerar genom att
+
+# Formal register
+Jag vill härmed informera er om att
+Med anledning av ert brev daterat den 15 mars
+Vi önskar upplysa er om att
+
+# Casual / spoken
+Tjena! Vad händer ikväll
+Asså jag fattar inte varför
+Ska vi dra nånstans
+
+# Idiomatic / cultural
+Lagom är bäst, det betyder att
+I Sverige firar man midsommar genom att
+Jantelagen innebär att
+
+# Practical everyday
+För att ansöka om personnummer i Sverige behöver du
+BankID används i Sverige för att
+Så här sorterar man sopor i Sverige
+
+# Multi-turn seeds
+Hej, jag har en fråga om
+Kan du förklara vad allemansrätten innebär
+Jag behöver hjälp med att skriva ett mejl till min chef
+
+# News-style
+Enligt nya uppgifter från Statistiska centralbyrån
+Riksdagen röstade idag om
+En ny rapport visar att
+
+# Nature / geography
+Norrland kännetecknas av
+Stockholms skärgård består av
+Fjällkedjan som sträcker sig genom
+
+# Food
+Klassiska svenska maträtter inkluderar
+Smörgåsbordet är en tradition som
+Kanelbullens dag firas den
+
+# Workplace
+På ett utvecklingssamtal brukar man
+Semesterlagen i Sverige ger rätt till
+Facket i Sverige har en roll som
+
+# Parent / school
+Mitt barn ska börja förskolan och jag undrar
+Betygssystemet i Sverige fungerar så att
+Skolplikt i Sverige gäller
+
+# SMS / text message style
+Hej! Ses vi vid 5 ikväll?
+Kan du köpa mjölk på vägen hem
+Sorry att jag är sen, kommer om 10 min

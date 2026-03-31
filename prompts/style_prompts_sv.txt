@@ -1,0 +1,32 @@
+# Style variation prompts for SFT evaluation
+# Tests whether the model can vary tone and register
+
+# Formal letter
+Skriv ett formellt brev till en myndighet där du överklagar ett beslut om bostadsbidrag.
+
+# Casual email
+Skriv ett avslappnat mejl till en kollega om att ni ska ta en fika imorgon.
+
+# SMS reply
+Svara på detta SMS som om du är en vän: "Hej! Ska vi ses på lördag?"
+
+# Customer support
+Du jobbar i kundtjänst. En kund klagar på att leveransen är försenad. Svara professionellt.
+
+# Explain to a child
+Förklara för ett barn på 8 år varför det blir mörkt på vintern i Sverige.
+
+# Academic
+Sammanfatta kort vad den svenska välfärdsmodellen innebär ur ett statsvetenskapligt perspektiv.
+
+# Practical instructions
+Ge steg-för-steg-instruktioner för hur man byter däck på en bil.
+
+# Creative
+Skriv en kort berättelse på tre meningar om en katt som bor på Södermalm i Stockholm.
+
+# Polite refusal
+Någon bjuder in dig till en fest men du kan inte komma. Tacka nej artigt.
+
+# Planning
+Hjälp mig planera en veckas semester i norra Sverige i juli. Vad bör jag tänka på?

@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data artifacts (keep manifests, ignore raw data)
+data/raw/
+data/processed/
+*.parquet
+*.arrow
+
+# Model checkpoints
+outputs/checkpoints/
+*.safetensors
+*.bin
+*.pt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.secret
+
+# Logs
+*.log
+wandb/
+trackio/
