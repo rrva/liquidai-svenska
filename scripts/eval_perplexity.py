@@ -14,6 +14,12 @@ import sys
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+try:
+    from unsloth import FastLanguageModel
+    HAS_UNSLOTH = True
+except ImportError:
+    HAS_UNSLOTH = False
+
 
 def load_eval_texts(path):
     """Load eval JSONL manifest."""
@@ -58,7 +64,21 @@ def compute_perplexity(model, tokenizer, texts, seq_length=2048, device="cpu"):
 
 
 def load_model(model_path, dtype):
-    """Load model and tokenizer."""
+    """Load model and tokenizer, using Unsloth for 2x faster inference when available."""
+    if HAS_UNSLOTH:
+        try:
+            model, tokenizer = FastLanguageModel.from_pretrained(
+                model_name=model_path,
+                max_seq_length=2048,
+                load_in_4bit=False,
+            )
+            FastLanguageModel.for_inference(model)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            return model, tokenizer
+        except Exception as e:
+            print(f"  Unsloth load failed ({e}), falling back to transformers")
+
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token

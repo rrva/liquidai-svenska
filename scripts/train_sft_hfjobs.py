@@ -85,6 +85,10 @@ def main():
     parser.add_argument("--output_dir", default=None, help="Override local output dir")
     parser.add_argument("--no_unsloth", action="store_true", help="Fallback to transformers+trl")
     parser.add_argument("--merge_model", action="store_true", help="Merge LoRA into base before upload")
+    parser.add_argument("--gguf", nargs="*", default=None,
+                        help="Export GGUF quantizations (Unsloth only). "
+                             "Specify quantization methods e.g. --gguf q4_k_m q8_0. "
+                             "Defaults to q4_k_m q8_0 if flag given with no args.")
     parser.add_argument("--no_push", action="store_true", help="Disable push to hub")
     args = parser.parse_args()
 
@@ -117,7 +121,7 @@ def main():
     seq_length = cfg.get("seq_length", 4096)
     lora_r = cfg.get("lora_r", 16)
     lora_alpha = cfg.get("lora_alpha", 16)
-    lora_dropout = cfg.get("lora_dropout", 0.05)
+    lora_dropout = cfg.get("lora_dropout", 0)
     batch_size = cfg.get("per_device_train_batch_size", 2)
     grad_accum = cfg.get("gradient_accumulation_steps", 8)
     lr = cfg.get("learning_rate", 2e-4)
@@ -152,15 +156,17 @@ def main():
                         push_to_hub, token, seq_length, lora_r, lora_alpha, lora_dropout,
                         batch_size, grad_accum, lr, num_epochs, report_to)
     else:
+        gguf_quants = args.gguf if args.gguf else (["q4_k_m", "q8_0"] if args.gguf is not None else None)
         _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo,
                             push_to_hub, token, seq_length, lora_r, lora_alpha, lora_dropout,
                             batch_size, grad_accum, lr, num_epochs, report_to,
-                            args.merge_model)
+                            args.merge_model, gguf_quants)
 
 
 def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo,
                          push_to_hub, _token, seq_length, lora_r, lora_alpha, lora_dropout,
-                         batch_size, grad_accum, lr, num_epochs, report_to, merge_model):
+                         batch_size, grad_accum, lr, num_epochs, report_to, merge_model,
+                         gguf_quants=None):
     """Train using Unsloth (preferred path)."""
     from unsloth import FastLanguageModel
     from unsloth.chat_templates import standardize_data_formats, train_on_responses_only
@@ -235,7 +241,7 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
         logging_steps=logging_steps,
         optim="adamw_8bit",
         weight_decay=cfg.get("weight_decay", 0.01),
-        lr_scheduler_type=cfg.get("lr_scheduler_type", "cosine"),
+        lr_scheduler_type=cfg.get("lr_scheduler_type", "linear"),
         seed=42,
         max_length=seq_length,
         report_to=report_to,
@@ -246,6 +252,8 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
         save_total_limit=cfg.get("save_total_limit", 3),
         eval_strategy="steps" if eval_ds else "no",
         eval_steps=eval_steps if eval_ds else None,
+        load_best_model_at_end=True if eval_ds else False,
+        metric_for_best_model="eval_loss",
         bf16=cfg.get("bf16", True),
     )
 
@@ -290,6 +298,27 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
         if push_to_hub:
             model.push_to_hub(hub_repo, tokenizer=tokenizer)
             print(f"  Adapter pushed to: {hub_repo}")
+
+    # GGUF export
+    if gguf_quants:
+        print(f"\n[GGUF] Exporting quantizations: {gguf_quants}")
+        gguf_dir = os.path.join(output_dir, "gguf")
+        for quant in gguf_quants:
+            print(f"  Exporting {quant}...")
+            model.save_pretrained_gguf(
+                gguf_dir,
+                tokenizer,
+                quantization_method=quant,
+            )
+            if push_to_hub:
+                gguf_repo = f"{hub_repo}-gguf"
+                model.push_to_hub_gguf(
+                    gguf_repo,
+                    tokenizer,
+                    quantization_method=quant,
+                )
+                print(f"  Pushed {quant} to: {gguf_repo}")
+        print(f"  GGUF files saved to: {gguf_dir}")
 
     # Save run summary
     summary = {
@@ -382,7 +411,7 @@ def _train_with_trl(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo
         learning_rate=lr,
         logging_steps=max(1, steps_per_epoch // 10),
         weight_decay=cfg.get("weight_decay", 0.01),
-        lr_scheduler_type=cfg.get("lr_scheduler_type", "cosine"),
+        lr_scheduler_type=cfg.get("lr_scheduler_type", "linear"),
         seed=42,
         max_length=seq_length,
         report_to=report_to,
@@ -393,6 +422,8 @@ def _train_with_trl(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo
         save_total_limit=cfg.get("save_total_limit", 3),
         eval_strategy="steps" if eval_ds else "no",
         eval_steps=save_steps if eval_ds else None,
+        load_best_model_at_end=True if eval_ds else False,
+        metric_for_best_model="eval_loss",
         bf16=cfg.get("bf16", True) and torch.cuda.is_available(),
     )
 

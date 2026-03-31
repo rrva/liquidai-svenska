@@ -13,6 +13,12 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+try:
+    from unsloth import FastLanguageModel
+    HAS_UNSLOTH = True
+except ImportError:
+    HAS_UNSLOTH = False
+
 
 # Swedish eval prompts covering key areas
 DEFAULT_PROMPTS = [
@@ -54,6 +60,31 @@ def load_prompts(path):
     return prompts
 
 
+def _load_model(model_path, dtype, device):
+    """Load model and tokenizer, using Unsloth for 2x faster inference when available."""
+    if HAS_UNSLOTH:
+        try:
+            model, tokenizer = FastLanguageModel.from_pretrained(
+                model_name=model_path,
+                max_seq_length=2048,
+                load_in_4bit=False,
+            )
+            FastLanguageModel.for_inference(model)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            return model, tokenizer
+        except Exception as e:
+            print(f"  Unsloth load failed ({e}), falling back to transformers")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=dtype, trust_remote_code=True
+    ).to(device)
+    return model, tokenizer
+
+
 def generate_responses(model, tokenizer, prompts, device, max_new_tokens=100):
     """Generate text for each prompt."""
     responses = []
@@ -64,9 +95,10 @@ def generate_responses(model, tokenizer, prompts, device, max_new_tokens=100):
                 input_ids,
                 max_new_tokens=max_new_tokens,
                 do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                repetition_penalty=1.1,
+                temperature=0.1,
+                top_k=50,
+                top_p=0.1,
+                repetition_penalty=1.05,
             )
         full_text = tokenizer.decode(output[0], skip_special_tokens=True)
         # Extract only the generated continuation
@@ -112,12 +144,7 @@ def main():
 
     # Base model
     print(f"\nLoading base: {args.base}")
-    base_tokenizer = AutoTokenizer.from_pretrained(args.base, trust_remote_code=True)
-    if base_tokenizer.pad_token is None:
-        base_tokenizer.pad_token = base_tokenizer.eos_token
-    base_model = AutoModelForCausalLM.from_pretrained(
-        args.base, torch_dtype=dtype, trust_remote_code=True
-    ).to(device)
+    base_model, base_tokenizer = _load_model(args.base, dtype, device)
 
     print("Generating base responses...")
     base_responses = generate_responses(base_model, base_tokenizer, prompts, device, args.max_new_tokens)
@@ -126,12 +153,7 @@ def main():
 
     # CPT model
     print(f"\nLoading CPT: {args.cpt}")
-    cpt_tokenizer = AutoTokenizer.from_pretrained(args.cpt, trust_remote_code=True)
-    if cpt_tokenizer.pad_token is None:
-        cpt_tokenizer.pad_token = cpt_tokenizer.eos_token
-    cpt_model = AutoModelForCausalLM.from_pretrained(
-        args.cpt, torch_dtype=dtype, trust_remote_code=True
-    ).to(device)
+    cpt_model, cpt_tokenizer = _load_model(args.cpt, dtype, device)
 
     print("Generating CPT responses...")
     cpt_responses = generate_responses(cpt_model, cpt_tokenizer, prompts, device, args.max_new_tokens)
@@ -141,12 +163,7 @@ def main():
     sft_responses = None
     if args.sft:
         print(f"\nLoading SFT: {args.sft}")
-        sft_tokenizer = AutoTokenizer.from_pretrained(args.sft, trust_remote_code=True)
-        if sft_tokenizer.pad_token is None:
-            sft_tokenizer.pad_token = sft_tokenizer.eos_token
-        sft_model = AutoModelForCausalLM.from_pretrained(
-            args.sft, torch_dtype=dtype, trust_remote_code=True
-        ).to(device)
+        sft_model, sft_tokenizer = _load_model(args.sft, dtype, device)
 
         print("Generating SFT responses...")
         sft_responses = generate_responses(sft_model, sft_tokenizer, prompts, device, args.max_new_tokens)
