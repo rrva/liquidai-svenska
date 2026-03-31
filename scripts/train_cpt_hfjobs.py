@@ -16,6 +16,7 @@ Run on HF Jobs:
 
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -201,7 +202,7 @@ def main():
         "train_sequences": len(train_ds),
         "eval_sequences": len(eval_ds),
         "final_eval_loss": final_eval.get("eval_loss"),
-        "final_eval_perplexity": 2 ** final_eval.get("eval_loss", 0) if final_eval.get("eval_loss") else None,
+        "final_eval_perplexity": math.exp(final_eval.get("eval_loss", 0)) if final_eval.get("eval_loss") else None,
     }
     summary_path = Path(output_dir) / "run_summary.json"
     with open(summary_path, "w") as f:

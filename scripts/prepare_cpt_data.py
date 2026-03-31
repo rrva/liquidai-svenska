@@ -132,7 +132,7 @@ def main():
     parser.add_argument("--min_chars", type=int, default=200)
     parser.add_argument("--max_chars", type=int, default=100000)
     parser.add_argument("--min_words", type=int, default=30)
-    parser.add_argument("--dedupe", action="store_true", default=True)
+    parser.add_argument("--no_dedupe", action="store_true", help="Disable deduplication")
     parser.add_argument("--eval_ratio", type=float, default=None, help="Override eval split ratio")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--local_only", action="store_true", help="Skip HF downloads, use only local sources")
@@ -186,7 +186,7 @@ def main():
     print(f"  {before} -> {len(all_docs)} after quality filter")
 
     # Dedup
-    if args.dedupe:
+    if not args.no_dedupe:
         print("Deduplicating...")
         seen = set()
         deduped = []
