@@ -1,9 +1,9 @@
 """
-Evaluate perplexity: compare base model vs CPT checkpoint on held-out Swedish text.
+Evaluate perplexity: compare base model vs CPT and/or SFT checkpoints on held-out Swedish text.
 
 Usage:
     python scripts/eval_perplexity.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt
-    python scripts/eval_perplexity.py --base LiquidAI/LFM2.5-1.2B-Base --cpt USERNAME/lfm25-svenska-1.2b-cpt
+    python scripts/eval_perplexity.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt --sft outputs/lfm25-svenska-1.2b-cpt-sft
 """
 
 import argparse
@@ -75,6 +75,7 @@ def main():
     parser = argparse.ArgumentParser(description="Perplexity evaluation: base vs CPT")
     parser.add_argument("--base", required=True, help="Base model name/path")
     parser.add_argument("--cpt", required=True, help="CPT model name/path")
+    parser.add_argument("--sft", default=None, help="SFT model name/path (optional, for 3-way comparison)")
     parser.add_argument("--eval_data", default="data/manifests/cpt_eval.jsonl", help="Eval data manifest")
     parser.add_argument("--seq_length", type=int, default=2048)
     parser.add_argument("--max_docs", type=int, default=None, help="Limit eval docs")
@@ -106,27 +107,45 @@ def main():
     print(f"  CPT perplexity: {cpt_results['perplexity']:.2f}")
     del cpt_model
 
+    # Evaluate SFT (optional)
+    sft_results = None
+    if args.sft:
+        print(f"\nEvaluating SFT: {args.sft}")
+        sft_model, sft_tokenizer = load_model(args.sft, dtype)
+        sft_results = compute_perplexity(sft_model, sft_tokenizer, texts, args.seq_length, device)
+        print(f"  SFT perplexity: {sft_results['perplexity']:.2f}")
+        del sft_model
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
     # Compare
-    delta_pct = ((cpt_results["perplexity"] - base_results["perplexity"]) / base_results["perplexity"]) * 100
+    cpt_delta_pct = ((cpt_results["perplexity"] - base_results["perplexity"]) / base_results["perplexity"]) * 100
     results = {
         "base_model": args.base,
         "cpt_model": args.cpt,
         "eval_docs": len(texts),
         "base_ppl": round(base_results["perplexity"], 4),
         "cpt_ppl": round(cpt_results["perplexity"], 4),
-        "delta_pct": round(delta_pct, 2),
+        "cpt_delta_pct": round(cpt_delta_pct, 2),
         "base_loss": round(base_results["avg_loss"], 4),
         "cpt_loss": round(cpt_results["avg_loss"], 4),
     }
 
+    if sft_results:
+        sft_delta_pct = ((sft_results["perplexity"] - base_results["perplexity"]) / base_results["perplexity"]) * 100
+        results["sft_model"] = args.sft
+        results["sft_ppl"] = round(sft_results["perplexity"], 4)
+        results["sft_delta_pct"] = round(sft_delta_pct, 2)
+        results["sft_loss"] = round(sft_results["avg_loss"], 4)
+
     print(f"\n=== Perplexity Comparison ===")
     print(f"Base: {results['base_ppl']}")
-    print(f"CPT:  {results['cpt_ppl']}")
-    print(f"Delta: {results['delta_pct']}%")
-    if delta_pct < 0:
-        print("=> CPT IMPROVED perplexity on Swedish eval data")
+    print(f"CPT:  {results['cpt_ppl']} ({results['cpt_delta_pct']:+.2f}%)")
+    if cpt_delta_pct < 0:
+        print("  => CPT IMPROVED perplexity on Swedish eval data")
     else:
-        print("=> WARNING: CPT did NOT improve perplexity")
+        print("  => WARNING: CPT did NOT improve perplexity")
+    if sft_results:
+        print(f"SFT:  {results['sft_ppl']} ({results['sft_delta_pct']:+.2f}%)")
 
     # Save
     with open(args.output, "w") as f:

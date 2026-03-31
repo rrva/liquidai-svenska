@@ -319,11 +319,19 @@ def main():
     print(f"After dedup: {len(all_convs)} -> {len(deduped)} ({len(all_convs) - len(deduped)} duplicates)")
     all_convs = deduped
 
-    # Split: stratified by source
-    random.shuffle(all_convs)
-    n_eval = max(1, int(len(all_convs) * eval_ratio))
-    eval_convs = all_convs[:n_eval]
-    train_convs = all_convs[n_eval:]
+    # Split: stratified by source — sample eval proportionally from each source
+    by_source = defaultdict(list)
+    for conv in all_convs:
+        by_source[conv["source"]].append(conv)
+    train_convs = []
+    eval_convs = []
+    for source, convs in by_source.items():
+        random.shuffle(convs)
+        n_eval = max(1, int(len(convs) * eval_ratio))
+        eval_convs.extend(convs[:n_eval])
+        train_convs.extend(convs[n_eval:])
+    random.shuffle(train_convs)
+    random.shuffle(eval_convs)
 
     # Write manifests
     out_dir = Path(args.out)

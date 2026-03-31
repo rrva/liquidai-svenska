@@ -3,7 +3,7 @@ CPT data pipeline: download, clean, deduplicate, split Swedish text for continue
 
 Usage:
     python scripts/prepare_cpt_data.py --config configs/datasets.yaml --out data/manifests
-    python scripts/prepare_cpt_data.py --config configs/datasets.yaml --out data/manifests --min_chars 200 --dedupe
+    python scripts/prepare_cpt_data.py --config configs/datasets.yaml --out data/manifests --min_chars 200
 """
 
 import argparse
@@ -13,7 +13,7 @@ import os
 import random
 import sys
 import unicodedata
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import yaml
@@ -42,6 +42,19 @@ def normalize_text(text):
 def text_hash(text):
     """SHA-256 hash for exact dedup."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def detect_swedish(text, threshold=0.8):
+    """Return True if text is predominantly Swedish."""
+    try:
+        from langdetect import detect_langs
+        langs = detect_langs(text[:2000])  # sample start for speed
+        for lang in langs:
+            if lang.lang == "sv" and lang.prob >= threshold:
+                return True
+        return False
+    except Exception:
+        return True  # if detection fails, keep the document
 
 
 def passes_quality(text, min_chars, max_chars, min_words):
@@ -133,6 +146,7 @@ def main():
     parser.add_argument("--max_chars", type=int, default=100000)
     parser.add_argument("--min_words", type=int, default=30)
     parser.add_argument("--no_dedupe", action="store_true", help="Disable deduplication")
+    parser.add_argument("--no_lang_filter", action="store_true", help="Skip language detection")
     parser.add_argument("--eval_ratio", type=float, default=None, help="Override eval split ratio")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--local_only", action="store_true", help="Skip HF downloads, use only local sources")
@@ -179,6 +193,13 @@ def main():
     for doc in all_docs:
         doc["text"] = normalize_text(doc["text"])
 
+    # Language filter
+    if not args.no_lang_filter:
+        print("Language filtering (keeping Swedish-dominant)...")
+        before = len(all_docs)
+        all_docs = [d for d in all_docs if detect_swedish(d["text"])]
+        print(f"  {before} -> {len(all_docs)} after language filter")
+
     # Quality filter
     print("Quality filtering...")
     before = len(all_docs)
@@ -204,12 +225,20 @@ def main():
         doc["chars"] = len(doc["text"])
         doc["license"] = "see-source"
 
-    # Split by source to avoid leakage, then sample eval
+    # Split by source to avoid leakage: sample eval proportionally from each source
     print(f"Splitting train/eval (eval_ratio={eval_ratio})...")
-    random.shuffle(all_docs)
-    n_eval = max(1, int(len(all_docs) * eval_ratio))
-    eval_docs = all_docs[:n_eval]
-    train_docs = all_docs[n_eval:]
+    by_source = defaultdict(list)
+    for doc in all_docs:
+        by_source[doc["source"]].append(doc)
+    train_docs = []
+    eval_docs = []
+    for source, docs in by_source.items():
+        random.shuffle(docs)
+        n_eval = max(1, int(len(docs) * eval_ratio))
+        eval_docs.extend(docs[:n_eval])
+        train_docs.extend(docs[n_eval:])
+    random.shuffle(train_docs)
+    random.shuffle(eval_docs)
 
     # Write manifests
     out_dir = Path(args.out)
@@ -244,11 +273,13 @@ def main():
 
     # Print stats
     total_chars = sum(d["chars"] for d in all_docs)
+    avg_doc_len = total_chars / max(len(all_docs), 1)
     print(f"\n=== CPT Data Stats ===")
     print(f"Total docs:   {len(all_docs):,}")
     print(f"Train docs:   {len(train_docs):,}")
     print(f"Eval docs:    {len(eval_docs):,}")
     print(f"Total chars:  {total_chars:,}")
+    print(f"Avg doc len:  {avg_doc_len:,.0f} chars")
     print(f"Est. tokens:  {total_chars // 4:,}")
     print(f"\nSource distribution:")
     for s in source_summary:

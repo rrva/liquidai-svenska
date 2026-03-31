@@ -1,8 +1,9 @@
 """
-Chat evaluation: run matched Swedish prompts on base and CPT models, save comparison.
+Chat evaluation: run matched Swedish prompts on base, CPT, and optionally SFT models.
 
 Usage:
     python scripts/eval_chat.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt
+    python scripts/eval_chat.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt --sft outputs/lfm25-svenska-1.2b-cpt-sft
 """
 
 import argparse
@@ -74,14 +75,17 @@ def generate_responses(model, tokenizer, prompts, device, max_new_tokens=100):
     return responses
 
 
-def format_comparison(prompts, base_responses, cpt_responses):
+def format_comparison(prompts, base_responses, cpt_responses, sft_responses=None):
     """Format as markdown comparison."""
-    lines = ["# Chat Evaluation: Base vs CPT\n"]
+    title = "Base vs CPT vs SFT" if sft_responses else "Base vs CPT"
+    lines = [f"# Chat Evaluation: {title}\n"]
     for i, prompt in enumerate(prompts):
         lines.append(f"## Prompt {i+1}")
         lines.append(f"**Prompt:** {prompt}\n")
         lines.append(f"**Base:**\n> {base_responses[i]}\n")
         lines.append(f"**CPT:**\n> {cpt_responses[i]}\n")
+        if sft_responses:
+            lines.append(f"**SFT:**\n> {sft_responses[i]}\n")
         lines.append("---\n")
     return "\n".join(lines)
 
@@ -90,6 +94,7 @@ def main():
     parser = argparse.ArgumentParser(description="Chat evaluation: base vs CPT")
     parser.add_argument("--base", required=True, help="Base model name/path")
     parser.add_argument("--cpt", required=True, help="CPT model name/path")
+    parser.add_argument("--sft", default=None, help="SFT model name/path (optional, for 3-way comparison)")
     parser.add_argument("--prompts", default=None, help="Prompts file (one per line)")
     parser.add_argument("--max_new_tokens", type=int, default=100)
     parser.add_argument("--output_dir", default="outputs")
@@ -132,11 +137,27 @@ def main():
     cpt_responses = generate_responses(cpt_model, cpt_tokenizer, prompts, device, args.max_new_tokens)
     del cpt_model
 
+    # SFT model (optional)
+    sft_responses = None
+    if args.sft:
+        print(f"\nLoading SFT: {args.sft}")
+        sft_tokenizer = AutoTokenizer.from_pretrained(args.sft, trust_remote_code=True)
+        if sft_tokenizer.pad_token is None:
+            sft_tokenizer.pad_token = sft_tokenizer.eos_token
+        sft_model = AutoModelForCausalLM.from_pretrained(
+            args.sft, torch_dtype=dtype, trust_remote_code=True
+        ).to(device)
+
+        print("Generating SFT responses...")
+        sft_responses = generate_responses(sft_model, sft_tokenizer, prompts, device, args.max_new_tokens)
+        del sft_model
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
     # Save individual outputs
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    comparison_md = format_comparison(prompts, base_responses, cpt_responses)
+    comparison_md = format_comparison(prompts, base_responses, cpt_responses, sft_responses)
 
     (out / "eval_chat_base.md").write_text(
         "# Base Model Responses\n\n" +
@@ -146,6 +167,11 @@ def main():
         "# CPT Model Responses\n\n" +
         "\n\n".join(f"**{p}**\n> {r}" for p, r in zip(prompts, cpt_responses))
     )
+    if sft_responses:
+        (out / "eval_chat_sft.md").write_text(
+            "# SFT Model Responses\n\n" +
+            "\n\n".join(f"**{p}**\n> {r}" for p, r in zip(prompts, sft_responses))
+        )
     (out / "eval_chat_comparison.md").write_text(comparison_md)
 
     print(f"\nSaved to {out}/eval_chat_*.md")
@@ -154,6 +180,8 @@ def main():
         print(f"\nPrompt: {prompts[i]}")
         print(f"Base: {base_responses[i][:120]}...")
         print(f"CPT:  {cpt_responses[i][:120]}...")
+        if sft_responses:
+            print(f"SFT:  {sft_responses[i][:120]}...")
 
     return 0
 
