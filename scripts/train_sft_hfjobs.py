@@ -51,6 +51,18 @@ logger = logging.getLogger(__name__)
 import yaml
 
 
+def check_cuda():
+    """Check CUDA availability and exit with helpful message if not available."""
+    import torch
+
+    if not torch.cuda.is_available():
+        logger.error("CUDA is not available. This script requires a GPU.")
+        logger.error("Run on a machine with a CUDA-capable GPU or use HF Jobs:")
+        logger.error("  hf jobs uv run scripts/train_sft_hfjobs.py --flavor a10g-small ...")
+        sys.exit(1)
+    logger.info(f"CUDA available: {torch.cuda.get_device_name(0)}")
+
+
 def load_config(path):
     with open(path) as f:
         return yaml.safe_load(f)
@@ -84,6 +96,7 @@ def main():
     parser = argparse.ArgumentParser(description="SFT training for Swedish LFM2.5")
     parser.add_argument("--config", required=True, help="Path to SFT config YAML")
     parser.add_argument("--output_dir", default=None, help="Override local output dir")
+    parser.add_argument("--max_steps", type=int, default=None, help="Override epochs with fixed step count (for quick tests)")
     parser.add_argument("--no_unsloth", action="store_true", help="Fallback to transformers+trl")
     parser.add_argument("--merge_model", action="store_true", help="Merge LoRA into base before upload")
     parser.add_argument("--gguf", nargs="*", default=None,
@@ -94,6 +107,7 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    check_cuda()
 
     # Resolve model name (prefix with HF username if needed)
     token = os.environ.get("HF_TOKEN")
@@ -127,7 +141,10 @@ def main():
     grad_accum = cfg.get("gradient_accumulation_steps", 8)
     lr = cfg.get("learning_rate", 2e-4)
     num_epochs = cfg.get("num_train_epochs", 3)
+    max_steps = args.max_steps  # None means use epochs
     report_to = cfg.get("report_to", "none")
+
+    duration_str = f"{max_steps} steps" if max_steps else f"{num_epochs} epoch(s)"
 
     print("=" * 70)
     print("Swedish LFM2.5-1.2B SFT (LoRA)")
@@ -138,7 +155,7 @@ def main():
     print(f"  LoRA r/alpha:   {lora_r}/{lora_alpha}")
     print(f"  Batch:          {batch_size} x {grad_accum} = {batch_size * grad_accum}")
     print(f"  LR:             {lr}")
-    print(f"  Epochs:         {num_epochs}")
+    print(f"  Training:       {duration_str}")
     print(f"  Unsloth:        {not args.no_unsloth}")
     print()
 
@@ -155,19 +172,19 @@ def main():
     if args.no_unsloth:
         _train_with_trl(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo,
                         push_to_hub, token, seq_length, lora_r, lora_alpha, lora_dropout,
-                        batch_size, grad_accum, lr, num_epochs, report_to)
+                        batch_size, grad_accum, lr, num_epochs, max_steps, report_to)
     else:
         gguf_quants = args.gguf if args.gguf else (["q4_k_m", "q8_0"] if args.gguf is not None else None)
         _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo,
                             push_to_hub, token, seq_length, lora_r, lora_alpha, lora_dropout,
-                            batch_size, grad_accum, lr, num_epochs, report_to,
+                            batch_size, grad_accum, lr, num_epochs, max_steps, report_to,
                             args.merge_model, gguf_quants)
 
 
 def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo,
                          push_to_hub, _token, seq_length, lora_r, lora_alpha, lora_dropout,
-                         batch_size, grad_accum, lr, num_epochs, report_to, merge_model,
-                         gguf_quants=None):
+                         batch_size, grad_accum, lr, num_epochs, max_steps, report_to,
+                         merge_model, gguf_quants=None):
     """Train using Unsloth (preferred path)."""
     from unsloth import FastLanguageModel
     from unsloth.chat_templates import standardize_data_formats, train_on_responses_only
@@ -187,12 +204,13 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
     )
 
     # LoRA with LFM2.5-specific target modules
+    # lora_dropout=0 per Unsloth recommendation (dropout unnecessary with LoRA)
     model = FastLanguageModel.get_peft_model(
         model,
         r=lora_r,
         target_modules=["q_proj", "k_proj", "v_proj", "out_proj", "in_proj", "w1", "w2", "w3"],
         lora_alpha=lora_alpha,
-        lora_dropout=lora_dropout,
+        lora_dropout=0,
         bias="none",
         use_gradient_checkpointing="unsloth",
         random_state=42,
@@ -231,13 +249,19 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
     save_steps = cfg.get("save_steps", max(1, steps_per_epoch // 4))
     eval_steps = cfg.get("eval_steps", save_steps)
 
+    if max_steps:
+        run_name = f"sft-svenska-{max_steps}steps"
+    else:
+        run_name = f"sft-svenska-{num_epochs}ep"
+
     training_config = SFTConfig(
         output_dir=output_dir,
         dataset_text_field="text",
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=grad_accum,
         warmup_ratio=cfg.get("warmup_ratio", 0.03),
-        num_train_epochs=num_epochs,
+        num_train_epochs=num_epochs if not max_steps else 1,
+        max_steps=max_steps if max_steps else -1,
         learning_rate=lr,
         logging_steps=logging_steps,
         optim="adamw_8bit",
@@ -246,7 +270,7 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
         seed=42,
         max_length=seq_length,
         report_to=report_to,
-        run_name=f"sft-svenska-{num_epochs}ep",
+        run_name=run_name,
         push_to_hub=push_to_hub,
         hub_model_id=hub_repo if push_to_hub else None,
         save_steps=save_steps,
@@ -287,6 +311,12 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
         eval_loss = eval_results.get("eval_loss")
         if eval_loss:
             print(f"  Final eval loss: {eval_loss:.4f}")
+            if train_loss:
+                ratio = eval_loss / train_loss
+                if ratio > 1.5:
+                    print(f"  Warning: Eval loss is {ratio:.1f}x train loss - possible overfitting")
+                else:
+                    print(f"  Eval/train ratio: {ratio:.2f} - model generalizes well")
 
     # Save
     print("\n[5/5] Saving...")
@@ -321,6 +351,15 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
                 print(f"  Pushed {quant} to: {gguf_repo}")
         print(f"  GGUF files saved to: {gguf_dir}")
 
+    # Update model card metadata
+    if push_to_hub:
+        from huggingface_hub import metadata_update
+        try:
+            metadata_update(hub_repo, {"datasets": [cfg.get("train_manifest", "custom")]}, overwrite=True)
+            print(f"  Model card metadata updated")
+        except Exception as e:
+            logger.warning(f"Failed to update model card metadata: {e}")
+
     # Save run summary
     summary = {
         "model_name": model_name,
@@ -342,7 +381,7 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
 
 def _train_with_trl(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo,
                      push_to_hub, token, seq_length, lora_r, lora_alpha, lora_dropout,
-                     batch_size, grad_accum, lr, num_epochs, report_to):
+                     batch_size, grad_accum, lr, num_epochs, max_steps, report_to):
     """Fallback: train with plain transformers + trl (no Unsloth)."""
     import torch
     from datasets import Dataset
@@ -408,7 +447,8 @@ def _train_with_trl(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=grad_accum,
         warmup_ratio=cfg.get("warmup_ratio", 0.03),
-        num_train_epochs=num_epochs,
+        num_train_epochs=num_epochs if not max_steps else 1,
+        max_steps=max_steps if max_steps else -1,
         learning_rate=lr,
         logging_steps=max(1, steps_per_epoch // 10),
         weight_decay=cfg.get("weight_decay", 0.01),
