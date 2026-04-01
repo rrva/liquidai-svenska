@@ -17,7 +17,7 @@ Build a Swedish-adapted conversational model in two stages:
 - Free credits: join the `unsloth-jobs` HF org
 - Monitoring: use `report_to="trackio"` for real-time loss curves
 - Claude Code plugin: `huggingface/skills` marketplace (optional)
-- CPT note: Unsloth Jobs templates are SFT-oriented (LoRA). CPT (full-parameter) needs a custom UV script using plain `transformers` + `Trainer`, not Unsloth's `FastLanguageModel`
+- CPT note: uses high-rank LoRA (r=128) with embed_tokens + lm_head via Unsloth's `UnslothTrainer`, merged into base by default. Full-parameter fallback available via `--no_unsloth`
 
 ### Non-goals
 - Do not start with 2.6B
@@ -190,11 +190,11 @@ Output stats: num docs, total chars, estimated tokens, source distribution, aver
 
 `scripts/train_cpt_hfjobs.py` — self-contained UV script.
 
-**This is NOT LoRA. CPT updates full model weights.** Cannot use Unsloth's `FastLanguageModel` (LoRA-oriented). Use plain `transformers.Trainer` with causal LM objective.
+**Uses high-rank LoRA (r=128) with embed_tokens + lm_head** via Unsloth's `FastLanguageModel` and `UnslothTrainer`, matching the official Unsloth CPT notebook. The adapter is merged into the base checkpoint by default (`--no_merge` to keep adapter-only). Falls back to full-parameter `transformers.Trainer` with `--no_unsloth`.
 
 ```python
 # /// script
-# dependencies = ["transformers>=4.45.0", "datasets", "accelerate", "trackio", "torch"]
+# dependencies = ["unsloth", "datasets", "trl==0.22.2", "huggingface_hub[hf_transfer]", "trackio", "tensorboard", "transformers==4.57.3", "pyyaml"]
 # ///
 ```
 
@@ -202,16 +202,20 @@ CPT config v1:
 ```yaml
 model_name: LiquidAI/LFM2.5-1.2B-Base
 seq_length: 2048
-per_device_train_batch_size: 4
+lora_r: 128
+lora_alpha: 32
+lora_dropout: 0
+use_rslora: true
+per_device_train_batch_size: 2
 gradient_accumulation_steps: 8
-learning_rate: 1.0e-4
-weight_decay: 0.1
-warmup_ratio: 0.01
+learning_rate: 5.0e-5
+embedding_learning_rate: 5.0e-6
+weight_decay: 0.0
+warmup_ratio: 0.1
 lr_scheduler_type: cosine
 num_train_epochs: 1
 bf16: true
-gradient_checkpointing: true
-logging_steps: 10
+logging_steps: 1
 save_steps: 500
 eval_steps: 500
 save_total_limit: 3
@@ -220,19 +224,17 @@ save_total_limit: 3
 Run (use exact flavor name available in your account at execution time):
 ```bash
 hf jobs uv run scripts/train_cpt_hfjobs.py \
-    --flavor a100-small \
+    --flavor a10g-small \
     --secrets HF_TOKEN \
     --timeout 24h \
     -- --config configs/cpt_1.2b.yaml
 ```
 
-Cost estimate: full-param 1.2B on A100 for ~500M tokens ≈ a few hours ≈ $5–15. Pilot (100M tokens) ≈ $2–5.
+Default behavior merges the LoRA adapter into the base before upload (use `--no_merge` to push adapter-only). Full-parameter fallback: add `--no_unsloth`.
 
-Output repo: `<USERNAME>/lfm25-svenska-1.2b-cpt`
+Output repo: `<USERNAME>/lfm25-svenska-1.2b-cpt` (merged checkpoint, ready for SFT)
 
 Save: tokenizer, config snapshot, trainer state, final checkpoint, run_summary.json.
-
-If full-param CPT too expensive, fall back to QLoRA-style domain adaptation as compromise experiment only.
 
 **Gate 2**: Proceed only if loss decreases, Swedish perplexity improves, generation still coherent.
 
@@ -283,11 +285,13 @@ If Unsloth supports the CPT checkpoint cleanly, use it for SFT (base `train_sft_
 
 Output repo: `<USERNAME>/lfm25-svenska-1.2b-cpt-sft`
 
+**SFT-only ablation baseline:** Run the same SFT LoRA directly on the original base (no CPT step) using `configs/sft_baseline_1.2b.yaml`. Output repo: `<USERNAME>/lfm25-svenska-1.2b-sft-only`. This proves whether the CPT adaptation step actually helped.
+
 **Gate 3**: Proceed to polish only if Swedish chat visibly improved, not overfit/repetitive, no glaring regressions.
 
 ### Phase 6 — Final evaluation
 
-Compare: Base → CPT → CPT+SFT
+Compare: Base → CPT → CPT+SFT → SFT-only
 
 **Automatic:** perplexity, QA match, response length stability, refusal consistency.
 

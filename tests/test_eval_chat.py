@@ -44,12 +44,12 @@ class TestFormatComparison:
         assert "**Prompt:** P1" in md
         assert "**Base:**" in md
         assert "**CPT:**" in md
-        assert "**SFT:**" not in md
+        assert "**CPT+SFT:**" not in md
 
     def test_three_way(self):
         md = eval_chat.format_comparison(["P1"], ["B1"], ["C1"], ["S1"])
-        assert "Base vs CPT vs SFT" in md
-        assert "**SFT:**" in md
+        assert "Base vs CPT vs CPT+SFT" in md
+        assert "**CPT+SFT:**" in md
         assert "S1" in md
 
     def test_multiple_prompts(self):

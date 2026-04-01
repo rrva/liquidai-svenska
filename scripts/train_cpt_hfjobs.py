@@ -93,7 +93,7 @@ def main():
     parser.add_argument("--config", required=True, help="Path to CPT config YAML")
     parser.add_argument("--output_dir", default=None, help="Override output directory")
     parser.add_argument("--no_unsloth", action="store_true", help="Fallback to transformers (full-param)")
-    parser.add_argument("--merge_model", action="store_true", help="Merge LoRA into base before upload")
+    parser.add_argument("--no_merge", action="store_true", help="Push LoRA adapter only (default: merge into base)")
     parser.add_argument("--no_push", action="store_true", help="Disable push to hub")
     args = parser.parse_args()
 
@@ -135,6 +135,7 @@ def main():
     print(f"  LR:             {lr}")
     print(f"  Epochs:         {num_epochs}")
     print(f"  Unsloth:        {not args.no_unsloth}")
+    print(f"  Merge adapter:  {not args.no_merge}")
     print()
 
     # Load data
@@ -154,7 +155,7 @@ def main():
     else:
         _train_with_unsloth(cfg, model_name, train_texts, eval_texts, output_dir,
                             hub_repo, push_to_hub, token, seq_length, batch_size,
-                            grad_accum, lr, num_epochs, report_to, args.merge_model)
+                            grad_accum, lr, num_epochs, report_to, not args.no_merge)
 
 
 def _train_with_unsloth(cfg, model_name, train_texts, eval_texts, output_dir, hub_repo,

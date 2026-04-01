@@ -1,9 +1,10 @@
 """
-Evaluate perplexity: compare base model vs CPT and/or SFT checkpoints on held-out Swedish text.
+Evaluate perplexity: compare base model vs CPT, SFT, and SFT-only checkpoints on held-out Swedish text.
 
 Usage:
     python scripts/eval_perplexity.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt
     python scripts/eval_perplexity.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt --sft outputs/lfm25-svenska-1.2b-cpt-sft
+    python scripts/eval_perplexity.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt --sft outputs/lfm25-svenska-1.2b-cpt-sft --sft_only outputs/lfm25-svenska-1.2b-sft-only
 """
 
 import argparse
@@ -101,7 +102,8 @@ def main():
     parser = argparse.ArgumentParser(description="Perplexity evaluation: base vs CPT")
     parser.add_argument("--base", required=True, help="Base model name/path")
     parser.add_argument("--cpt", required=True, help="CPT model name/path")
-    parser.add_argument("--sft", default=None, help="SFT model name/path (optional, for 3-way comparison)")
+    parser.add_argument("--sft", default=None, help="SFT model name/path (CPT+SFT, optional)")
+    parser.add_argument("--sft_only", default=None, help="SFT-only model name/path (SFT on base, no CPT — ablation baseline)")
     parser.add_argument("--eval_data", default="data/manifests/cpt_eval.jsonl", help="Eval data manifest")
     parser.add_argument("--seq_length", type=int, default=2048)
     parser.add_argument("--max_docs", type=int, default=None, help="Limit eval docs")
@@ -143,6 +145,16 @@ def main():
         del sft_model
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
+    # Evaluate SFT-only baseline (optional — SFT directly on base, no CPT)
+    sft_only_results = None
+    if args.sft_only:
+        print(f"\nEvaluating SFT-only: {args.sft_only}")
+        sft_only_model, sft_only_tokenizer = load_model(args.sft_only, dtype, base_model_path=args.base)
+        sft_only_results = compute_perplexity(sft_only_model, sft_only_tokenizer, texts, args.seq_length, device)
+        print(f"  SFT-only perplexity: {sft_only_results['perplexity']:.2f}")
+        del sft_only_model
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
     # Compare
     cpt_delta_pct = ((cpt_results["perplexity"] - base_results["perplexity"]) / base_results["perplexity"]) * 100
     results = {
@@ -163,15 +175,29 @@ def main():
         results["sft_delta_pct"] = round(sft_delta_pct, 2)
         results["sft_loss"] = round(sft_results["avg_loss"], 4)
 
+    if sft_only_results:
+        sft_only_delta_pct = ((sft_only_results["perplexity"] - base_results["perplexity"]) / base_results["perplexity"]) * 100
+        results["sft_only_model"] = args.sft_only
+        results["sft_only_ppl"] = round(sft_only_results["perplexity"], 4)
+        results["sft_only_delta_pct"] = round(sft_only_delta_pct, 2)
+        results["sft_only_loss"] = round(sft_only_results["avg_loss"], 4)
+
     print(f"\n=== Perplexity Comparison ===")
-    print(f"Base: {results['base_ppl']}")
-    print(f"CPT:  {results['cpt_ppl']} ({results['cpt_delta_pct']:+.2f}%)")
+    print(f"Base:     {results['base_ppl']}")
+    print(f"CPT:      {results['cpt_ppl']} ({results['cpt_delta_pct']:+.2f}%)")
     if cpt_delta_pct < 0:
         print("  => CPT IMPROVED perplexity on Swedish eval data")
     else:
         print("  => WARNING: CPT did NOT improve perplexity")
     if sft_results:
-        print(f"SFT:  {results['sft_ppl']} ({results['sft_delta_pct']:+.2f}%)")
+        print(f"CPT+SFT:  {results['sft_ppl']} ({results['sft_delta_pct']:+.2f}%)")
+    if sft_only_results:
+        print(f"SFT-only: {results['sft_only_ppl']} ({results['sft_only_delta_pct']:+.2f}%)")
+        if sft_results:
+            if results["sft_ppl"] < results["sft_only_ppl"]:
+                print("  => CPT+SFT beats SFT-only — CPT adaptation helped")
+            else:
+                print("  => SFT-only matches or beats CPT+SFT — CPT step may not be worth the cost")
 
     # Save
     with open(args.output, "w") as f:

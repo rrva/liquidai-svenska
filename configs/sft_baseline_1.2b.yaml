@@ -1,0 +1,36 @@
+# SFT-only baseline: LoRA SFT directly on the original base (no CPT step).
+# Used to test whether the CPT adaptation step actually helps.
+#
+# Compare results against sft_1.2b.yaml (which SFTs on the CPT checkpoint).
+
+model_name: LiquidAI/LFM2.5-1.2B-Base
+output_repo: lfm25-svenska-1.2b-sft-only
+
+seq_length: 4096
+load_in_4bit: false
+
+# LoRA — same settings as sft_1.2b.yaml for fair comparison
+lora_r: 16
+lora_alpha: 16
+lora_dropout: 0
+
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 8
+learning_rate: 2.0e-4
+num_train_epochs: 3
+lr_scheduler_type: linear
+warmup_ratio: 0.03
+weight_decay: 0.01
+bf16: true
+gradient_checkpointing: true
+
+logging_steps: 10
+save_steps: 250
+eval_steps: 250
+save_total_limit: 3
+
+report_to: trackio
+
+# Same data as the main SFT run
+train_manifest: data/manifests/sft_train.jsonl
+eval_manifest: data/manifests/sft_eval.jsonl

@@ -1,9 +1,10 @@
 """
-Chat evaluation: run matched Swedish prompts on base, CPT, and optionally SFT models.
+Chat evaluation: run matched Swedish prompts on base, CPT, SFT, and SFT-only models.
 
 Usage:
     python scripts/eval_chat.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt
     python scripts/eval_chat.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt --sft outputs/lfm25-svenska-1.2b-cpt-sft
+    python scripts/eval_chat.py --base LiquidAI/LFM2.5-1.2B-Base --cpt outputs/lfm25-svenska-1.2b-cpt --sft outputs/lfm25-svenska-1.2b-cpt-sft --sft_only outputs/lfm25-svenska-1.2b-sft-only
 """
 
 import argparse
@@ -113,9 +114,14 @@ def generate_responses(model, tokenizer, prompts, device, max_new_tokens=100):
     return responses
 
 
-def format_comparison(prompts, base_responses, cpt_responses, sft_responses=None):
+def format_comparison(prompts, base_responses, cpt_responses, sft_responses=None, sft_only_responses=None):
     """Format as markdown comparison."""
-    title = "Base vs CPT vs SFT" if sft_responses else "Base vs CPT"
+    parts = ["Base", "CPT"]
+    if sft_responses:
+        parts.append("CPT+SFT")
+    if sft_only_responses:
+        parts.append("SFT-only")
+    title = " vs ".join(parts)
     lines = [f"# Chat Evaluation: {title}\n"]
     for i, prompt in enumerate(prompts):
         lines.append(f"## Prompt {i+1}")
@@ -123,7 +129,9 @@ def format_comparison(prompts, base_responses, cpt_responses, sft_responses=None
         lines.append(f"**Base:**\n> {base_responses[i]}\n")
         lines.append(f"**CPT:**\n> {cpt_responses[i]}\n")
         if sft_responses:
-            lines.append(f"**SFT:**\n> {sft_responses[i]}\n")
+            lines.append(f"**CPT+SFT:**\n> {sft_responses[i]}\n")
+        if sft_only_responses:
+            lines.append(f"**SFT-only:**\n> {sft_only_responses[i]}\n")
         lines.append("---\n")
     return "\n".join(lines)
 
@@ -132,7 +140,8 @@ def main():
     parser = argparse.ArgumentParser(description="Chat evaluation: base vs CPT")
     parser.add_argument("--base", required=True, help="Base model name/path")
     parser.add_argument("--cpt", required=True, help="CPT model name/path")
-    parser.add_argument("--sft", default=None, help="SFT model name/path (optional, for 3-way comparison)")
+    parser.add_argument("--sft", default=None, help="SFT model name/path (CPT+SFT, optional)")
+    parser.add_argument("--sft_only", default=None, help="SFT-only model name/path (SFT on base, no CPT — ablation baseline)")
     parser.add_argument("--prompts", default=None, help="Prompts file (one per line)")
     parser.add_argument("--max_new_tokens", type=int, default=100)
     parser.add_argument("--output_dir", default="outputs")
@@ -176,11 +185,22 @@ def main():
         del sft_model
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
+    # SFT-only baseline (optional — SFT directly on base, no CPT)
+    sft_only_responses = None
+    if args.sft_only:
+        print(f"\nLoading SFT-only: {args.sft_only}")
+        sft_only_model, sft_only_tokenizer = load_model(args.sft_only, dtype, device, base_model_path=args.base)
+
+        print("Generating SFT-only responses...")
+        sft_only_responses = generate_responses(sft_only_model, sft_only_tokenizer, prompts, device, args.max_new_tokens)
+        del sft_only_model
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
     # Save individual outputs
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    comparison_md = format_comparison(prompts, base_responses, cpt_responses, sft_responses)
+    comparison_md = format_comparison(prompts, base_responses, cpt_responses, sft_responses, sft_only_responses)
 
     (out / "eval_chat_base.md").write_text(
         "# Base Model Responses\n\n" +
@@ -195,16 +215,23 @@ def main():
             "# SFT Model Responses\n\n" +
             "\n\n".join(f"**{p}**\n> {r}" for p, r in zip(prompts, sft_responses))
         )
+    if sft_only_responses:
+        (out / "eval_chat_sft_only.md").write_text(
+            "# SFT-only Model Responses (no CPT)\n\n" +
+            "\n\n".join(f"**{p}**\n> {r}" for p, r in zip(prompts, sft_only_responses))
+        )
     (out / "eval_chat_comparison.md").write_text(comparison_md)
 
     print(f"\nSaved to {out}/eval_chat_*.md")
     print("\n=== Sample Comparisons ===")
     for i in range(min(3, len(prompts))):
         print(f"\nPrompt: {prompts[i]}")
-        print(f"Base: {base_responses[i][:120]}...")
-        print(f"CPT:  {cpt_responses[i][:120]}...")
+        print(f"Base:     {base_responses[i][:120]}...")
+        print(f"CPT:      {cpt_responses[i][:120]}...")
         if sft_responses:
-            print(f"SFT:  {sft_responses[i][:120]}...")
+            print(f"CPT+SFT:  {sft_responses[i][:120]}...")
+        if sft_only_responses:
+            print(f"SFT-only: {sft_only_responses[i][:120]}...")
 
     return 0
 
