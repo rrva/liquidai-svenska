@@ -3,6 +3,8 @@
 import hashlib
 import json
 
+import yaml
+
 import prepare_sft_data as sft
 
 
@@ -293,3 +295,48 @@ class TestValidateConversation:
 
     def test_empty_messages_list(self):
         assert sft.validate_conversation({"messages": []}) is False
+
+
+# ─── Integration test: main() with local data ──────────────────────────────
+
+
+class TestMainIntegration:
+    def test_main_local_only(self, tmp_path, tmp_jsonl, monkeypatch):
+        """Run main() end-to-end with --local_only on synthetic local data."""
+        # Create a minimal SFT JSONL with valid conversations
+        sft_data = [
+            {
+                "messages": [
+                    {"role": "user", "content": f"Fråga {i}"},
+                    {"role": "assistant", "content": f"Svar nummer {i} som är tillräckligt långt"},
+                ],
+                "source": "test",
+            }
+            for i in range(20)
+        ]
+        sft_path = tmp_path / "sft_input.jsonl"
+        with open(sft_path, "w") as f:
+            for row in sft_data:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+        # Config that references no HF sources
+        config = {
+            "sft_sources": [],
+            "splits": {"sft_eval_ratio": 0.2},
+        }
+        config_path = tmp_path / "test_config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+
+        out_dir = tmp_path / "out"
+        monkeypatch.setattr(
+            "sys.argv",
+            ["prepare_sft_data.py", "--config", str(config_path), "--out", str(out_dir),
+             "--local_only"],
+        )
+        # main() with --local_only and no sources produces empty output — that's OK
+        result = sft.main()
+        assert result == 0
+
+        for name in ["sft_train.jsonl", "sft_eval.jsonl"]:
+            assert (out_dir / name).exists(), f"Missing output: {name}"

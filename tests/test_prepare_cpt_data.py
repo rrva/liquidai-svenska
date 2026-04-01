@@ -1,6 +1,7 @@
 """Tests for scripts/prepare_cpt_data.py — text processing, quality filters, file loading."""
 
 import hashlib
+import json
 from unittest.mock import patch
 
 import pytest
@@ -90,9 +91,9 @@ class TestDetectSwedish:
         )
         assert cpt.detect_swedish(text) is False
 
-    def test_empty_string_returns_true(self):
-        # langdetect raises on empty string, so graceful fallback
-        assert cpt.detect_swedish("") is True
+    def test_empty_string_returns_false(self):
+        # langdetect raises on empty string; detect_swedish rejects on exception
+        assert cpt.detect_swedish("") is False
 
 
 class TestDetectSwedishFallback:
@@ -208,3 +209,45 @@ class TestLoadLocalSource:
         cfg = {"path": path, "name": "test", "text_field": "text"}
         docs = cpt.load_local_source(cfg)
         assert len(docs) == 2
+
+
+# ─── Integration test: main() with local sample data ───────────────────────
+
+
+class TestMainIntegration:
+    def test_main_local_only(self, tmp_path, sample_cpt_jsonl_path, monkeypatch):
+        """Run main() end-to-end with --local_only on sample data."""
+        config = {
+            "cpt_sources": [
+                {
+                    "name": "test_local",
+                    "type": "local",
+                    "path": str(sample_cpt_jsonl_path),
+                    "text_field": "text",
+                    "license": "sample",
+                }
+            ],
+            "quality": {"min_chars": 50, "max_chars": 100000, "min_words": 5},
+            "splits": {"cpt_eval_ratio": 0.2},
+        }
+        import yaml
+        config_path = tmp_path / "test_config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+
+        out_dir = tmp_path / "out"
+        monkeypatch.setattr(
+            "sys.argv",
+            ["prepare_cpt_data.py", "--config", str(config_path), "--out", str(out_dir),
+             "--local_only", "--no_lang_filter"],
+        )
+        result = cpt.main()
+        assert result == 0
+
+        # Check outputs exist and are valid JSONL
+        for name in ["cpt_train.jsonl", "cpt_eval.jsonl", "cpt_sources.jsonl"]:
+            path = out_dir / name
+            assert path.exists(), f"Missing output: {name}"
+            with open(path) as f:
+                lines = [json.loads(line) for line in f if line.strip()]
+            assert len(lines) > 0, f"Empty output: {name}"

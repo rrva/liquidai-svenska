@@ -52,6 +52,7 @@ liquidai-svenska/
 │   ├── train_sft_hfjobs.py
 │   ├── eval_perplexity.py
 │   ├── eval_chat.py
+│   ├── model_utils.py
 │   └── smoke_test.py
 ├── data/
 │   ├── README.md
@@ -69,6 +70,7 @@ liquidai-svenska/
 │   ├── test_train_cpt_hfjobs.py
 │   └── test_train_sft_hfjobs.py
 ├── pytest.ini
+├── requirements.txt
 └── outputs/
     └── .gitkeep
 ```

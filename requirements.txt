@@ -1,0 +1,21 @@
+# Core dependencies for local development
+torch
+transformers>=4.57.0
+datasets
+pyyaml
+peft
+trl>=0.22.0
+huggingface_hub[hf_transfer]
+
+# Data preparation
+langdetect
+
+# Synthetic data generation (optional)
+anthropic
+
+# Training monitoring (optional)
+trackio
+tensorboard
+
+# Testing
+pytest

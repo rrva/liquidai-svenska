@@ -290,12 +290,27 @@ def _train_with_unsloth(cfg, model_name, train_rows, eval_rows, output_dir, hub_
         args=training_config,
     )
 
-    # Train only on assistant responses
-    trainer = train_on_responses_only(
-        trainer,
-        instruction_part="<|im_start|>user\n",
-        response_part="<|im_start|>assistant\n",
-    )
+    # Train only on assistant responses — derive markers from the chat template
+    # Verify the tokenizer uses ChatML-style template before applying
+    test_msg = [{"role": "user", "content": "test"}]
+    rendered = tokenizer.apply_chat_template(test_msg, tokenize=False, add_generation_prompt=False)
+    if "<|im_start|>user" in rendered:
+        instruction_part = "<|im_start|>user\n"
+        response_part = "<|im_start|>assistant\n"
+    else:
+        logger.warning(
+            "Chat template does not use ChatML format (<|im_start|>). "
+            "Falling back to full-sequence training (no response-only masking)."
+        )
+        instruction_part = None
+        response_part = None
+
+    if instruction_part and response_part:
+        trainer = train_on_responses_only(
+            trainer,
+            instruction_part=instruction_part,
+            response_part=response_part,
+        )
 
     start = time.time()
     train_result = trainer.train()
@@ -505,4 +520,4 @@ def _train_with_trl(cfg, model_name, train_rows, eval_rows, output_dir, hub_repo
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

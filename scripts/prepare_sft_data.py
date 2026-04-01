@@ -321,7 +321,7 @@ Returnera ENBART JSON, inget annat.\
 """
 
 
-def generate_synthetic_conversations(target, api_key, seed=42):
+def generate_synthetic_conversations(target, api_key, seed=42, model="claude-haiku-4-5-20251001"):
     """Generate synthetic Swedish conversations using the Anthropic API.
 
     Requires: pip install anthropic
@@ -330,6 +330,7 @@ def generate_synthetic_conversations(target, api_key, seed=42):
         target: Number of conversations to generate.
         api_key: Anthropic API key (ANTHROPIC_API_KEY).
         seed: Random seed for category/style selection.
+        model: Anthropic model ID for generation.
 
     Returns:
         List of {"messages": [...], "source": "synthetic", "license": "synthetic"}.
@@ -367,7 +368,7 @@ def generate_synthetic_conversations(target, api_key, seed=42):
 
         try:
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=model,
                 max_tokens=4096,
                 system=SYNTHETIC_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
@@ -432,11 +433,13 @@ def main():
     parser.add_argument("--local_only", action="store_true")
     parser.add_argument("--synthetic_target", type=int, default=0,
                         help="Number of synthetic conversations to generate via Anthropic API")
+    parser.add_argument("--synthetic_model", type=str, default="claude-haiku-4-5-20251001",
+                        help="Anthropic model ID for synthetic generation (default: claude-haiku-4-5-20251001)")
     args = parser.parse_args()
 
     random.seed(args.seed)
     config = load_config(args.config)
-    eval_ratio = args.eval_ratio or config.get("splits", {}).get("sft_eval_ratio", 0.05)
+    eval_ratio = args.eval_ratio if args.eval_ratio is not None else config.get("splits", {}).get("sft_eval_ratio", 0.05)
 
     token = os.environ.get("HF_TOKEN")
 
@@ -464,6 +467,7 @@ def main():
             target=args.synthetic_target,
             api_key=anthropic_key,
             seed=args.seed,
+            model=args.synthetic_model,
         )
         all_convs.extend(synthetic)
 
