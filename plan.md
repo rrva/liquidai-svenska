@@ -2,12 +2,14 @@
 
 ## Mission
 
-Build a Swedish-adapted conversational model in two stages:
+Build a Swedish phone voice assistant powered by a Swedish-adapted LFM2.5 model. The model is trained in two stages:
 1. **Continued pretraining (CPT)** on Swedish raw text using the base checkpoint
 2. **Supervised fine-tuning (SFT)** on Swedish instruction/chat data using the CPT checkpoint
 
+The end goal is a low-latency, natural-sounding Swedish voice assistant for phone calls — the 1.2B model size is chosen specifically for real-time voice inference.
+
 - Base model: `LiquidAI/LFM2.5-1.2B-Base`
-- Chat target: Swedish conversational assistant
+- Use case: Swedish phone voice assistant
 - Infra: Hugging Face Jobs with UV scripts (Unsloth Jobs)
 - Local workflow: repo-first, reproducible, resumable
 
@@ -29,7 +31,7 @@ Build a Swedish-adapted conversational model in two stages:
 
 **Phase A — CPT**: visibly better Swedish fluency, lower perplexity on held-out Swedish, fewer English intrusions.
 
-**Phase B — SFT**: stable Swedish chat, better instruction following than CPT-only, better tone/helpfulness/multi-turn than stock instruct for Swedish.
+**Phase B — SFT**: stable Swedish chat suitable for voice — concise responses, natural spoken Swedish tone, good instruction following, better helpfulness/multi-turn than stock instruct for Swedish.
 
 ---
 
