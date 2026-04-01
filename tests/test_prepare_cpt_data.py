@@ -98,19 +98,20 @@ class TestDetectSwedish:
 class TestDetectSwedishFallback:
     """Test exception handling without requiring langdetect."""
 
-    def test_exception_returns_true(self):
+    def test_exception_returns_false(self):
+        """When langdetect raises, detect_swedish rejects the document."""
         import sys
         import types
         fake = types.ModuleType("langdetect")
         fake.detect_langs = lambda text: (_ for _ in ()).throw(Exception("mock"))
         with patch.dict(sys.modules, {"langdetect": fake}):
-            assert cpt.detect_swedish("anything") is True
+            assert cpt.detect_swedish("anything") is False
 
-    def test_no_langdetect_returns_true(self):
-        """When langdetect import fails entirely, detect_swedish returns True."""
+    def test_no_langdetect_returns_false(self):
+        """When langdetect import fails entirely, detect_swedish rejects the document."""
         import sys
         with patch.dict(sys.modules, {"langdetect": None}):
-            assert cpt.detect_swedish("anything") is True
+            assert cpt.detect_swedish("anything") is False
 
 
 # ─── passes_quality ──────────────────────────────────────────────────────────
