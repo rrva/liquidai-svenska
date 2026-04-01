@@ -43,6 +43,7 @@ liquidai-svenska/
 ├── configs/
 │   ├── cpt_1.2b.yaml
 │   ├── sft_1.2b.yaml
+│   ├── sft_baseline_1.2b.yaml
 │   └── datasets.yaml
 ├── scripts/
 │   ├── prepare_cpt_data.py
@@ -59,6 +60,15 @@ liquidai-svenska/
 ├── prompts/
 │   ├── eval_prompts_sv.txt
 │   └── style_prompts_sv.txt
+├── tests/
+│   ├── conftest.py
+│   ├── test_eval_chat.py
+│   ├── test_eval_perplexity.py
+│   ├── test_prepare_cpt_data.py
+│   ├── test_prepare_sft_data.py
+│   ├── test_train_cpt_hfjobs.py
+│   └── test_train_sft_hfjobs.py
+├── pytest.ini
 └── outputs/
     └── .gitkeep
 ```
@@ -240,12 +250,12 @@ Save: tokenizer, config snapshot, trainer state, final checkpoint, run_summary.j
 
 ### Phase 3 — CPT evaluation
 
-`scripts/eval_perplexity.py` — compare base vs CPT on held-out Swedish.
-Output: `{"base_ppl": ..., "cpt_ppl": ..., "delta_pct": ...}`
+`scripts/eval_perplexity.py` — compare perplexity across up to 4 checkpoints: `--base`, `--cpt`, `--sft` (CPT+SFT), `--sft_only` (SFT on base). Auto-detects PEFT adapters and merges before eval.
+Output: `{"base_ppl": ..., "cpt_ppl": ..., "sft_ppl": ..., "sft_only_ppl": ..., ...}`
 
-`scripts/eval_chat.py` — run matched prompts on base and CPT.
+`scripts/eval_chat.py` — run matched Swedish prompts on the same 4 checkpoints. Auto-detects PEFT adapters.
 Test: particles (ju, väl, nog), compounds, formal vs casual, idiomatic chat, culturally Swedish phrasing.
-Store: `outputs/eval_chat_base.md`, `outputs/eval_chat_cpt.md`
+Store: `outputs/eval_chat_base.md`, `outputs/eval_chat_cpt.md`, `outputs/eval_chat_sft.md`, `outputs/eval_chat_sft_only.md`, `outputs/eval_chat_comparison.md`
 
 ### Phase 4 — SFT data pipeline
 
@@ -266,12 +276,12 @@ seq_length: 4096
 load_in_4bit: false
 lora_r: 16
 lora_alpha: 16
-lora_dropout: 0.05
+lora_dropout: 0
 per_device_train_batch_size: 2
 gradient_accumulation_steps: 8
 learning_rate: 2.0e-4
 num_train_epochs: 3
-lr_scheduler_type: cosine
+lr_scheduler_type: linear
 warmup_ratio: 0.03
 weight_decay: 0.01
 bf16: true
